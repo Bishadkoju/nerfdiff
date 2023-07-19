@@ -20,13 +20,15 @@ if __name__ == "__main__":
 
     #! General
     parser.add_argument("--experiment_name", type=str, default="base")
-    parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda", "cuda:0", "cuda:1"])
+    parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--save_images_step", type=int, default=1)
 
     #! Dataset
     # parser.add_argument("--dataset", type=str, default="dino", choices=["circle", "dino", "line", "moons"])
+    parser.add_argument("--dataset_path", type=str, default="/usr/dataset/dtu_scene6")
+    parser.add_argument("--poses", type=str, default="poses.txt")
     parser.add_argument("--scene_datapoints", type=int, default=None)
-    parser.add_argument("--train_batch_size", type=int, default=128)
+    parser.add_argument("--train_batch_size", type=int, default=32)
     parser.add_argument("--eval_batch_size", type=int, default=1000)
 
     #! Model
@@ -47,24 +49,23 @@ if __name__ == "__main__":
     config = parser.parse_args()
 
     #! Define Dataset
-    dataset = SceneDataset(path='/home/sunycs/rashik/dataset/dtu_scene6', filename='poses.txt', N=config.scene_datapoints)
+    dataset = SceneDataset(path=config.dataset_path, filename=config.poses, N=config.scene_datapoints)
     config.scene_datapoints = dataset.__len__()
 
 
-    if config.scene_datapoints > config.train_batch_size:
+    if config.scene_datapoints >= config.train_batch_size:
         dataloader = DataLoader(dataset, batch_size=config.train_batch_size, shuffle=True, drop_last=True)
     else:
-        print(f"Batchsize ({config.train_batch_size}) > Length of Dataset ({config.scene_datapoints})")
+        print(f"Error: Batchsize ({config.train_batch_size}) > Length of Dataset ({config.scene_datapoints})")
         exit()
 
 
     # dataloader = DataLoader(dataset, batch_size=dataset.__len__(), shuffle=True, drop_last=True)
 
-    for step, batch in enumerate(dataloader):
-        print(step)
+    # for step, batch in enumerate(dataloader):
+    #     print(step)
         # print(batch['name'])
 
-    input()
 
     # print(dataloader)
     # print('data keys: ')
@@ -174,7 +175,7 @@ if __name__ == "__main__":
         #     frames.append(sample.numpy())
 
     print("Saving model...")
-    outdir = f"exps/{config.experiment_name}"
+    outdir = f"data/diff_exps/{config.experiment_name}"
     os.makedirs(outdir, exist_ok=True)
     torch.save(model.state_dict(), f"{outdir}/model.pth")
 
