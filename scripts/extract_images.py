@@ -44,7 +44,7 @@ with open(f"{output_path}/poses.txt", "w") as file:
     if 'camera_distance' in data.keys(): file.write(f"> camera_distance:{data['camera_distance']}\n") 
 
     for i,q in enumerate(qt):
-        file.write(f"{i}.jpg {q[0]} {q[1]} {q[2]} {q[3]} {q[4]} {q[5]} {q[6]}\n")
+        file.write(f"{i:04d}.jpg {q[0]} {q[1]} {q[2]} {q[3]} {q[4]} {q[5]} {q[6]}\n")
 
 print(f"Poses extracted to {output_path}/poses.txt")
 
