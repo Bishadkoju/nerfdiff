@@ -10,13 +10,17 @@ from nerfdiff.dataset.scene_dataset import SceneDataset
 from nerfdiff.model.diff_model import DiffModel
 from nerfdiff.diffusion.noise_scheduler import NoiseScheduler
 import nerfdiff.utils.base as utils
+import nerfdiff.utils.plot as plot
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--experiment_name", type=str, default="base")
     parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda"])
-    # parser.add_argument("--dataset", type=str, default="dino", choices=["circle", "dino", "line", "moons"])
+
+    parser.add_argument("--dataset_path", type=str, default="/usr/dataset/dtu_scene6")
+    parser.add_argument("--train_poses", type=str, default="poses.txt")
+    parser.add_argument("--test_poses", type=str, default="poses.txt")
     # parser.add_argument("--train_batch_size", type=int, default=32)
     parser.add_argument("--eval_batch_size", type=int, default=100)
     parser.add_argument("--num_epochs", type=int, default=200)
@@ -32,8 +36,8 @@ if __name__ == "__main__":
     config = parser.parse_args()
 
     #! Define Dataset
-    train_dataset = SceneDataset(path='/home/menelaos/rashik/others/dtu_reconstruct', filename='poses_train_5.txt')
-    test_dataset = SceneDataset(path='/home/menelaos/rashik/others/dtu_reconstruct', filename='poses_test_5.txt')
+    train_dataset = SceneDataset(path=config.dataset_path, filename=config.train_poses)
+    test_dataset = SceneDataset(path=config.dataset_path, filename=config.test_poses)
 
 
     #! Define Model
@@ -44,7 +48,7 @@ if __name__ == "__main__":
         time_emb=config.time_embedding,
         input_emb=config.input_embedding).to(config.device)
 
-    model_path = f"exps/{config.experiment_name}/model.pth"
+    model_path = f"data/diff_exps/{config.experiment_name}/model.pth"
     model.load_state_dict(torch.load(model_path))
     print(f"Model Loaded: {model_path}")
     model.eval()
@@ -62,7 +66,7 @@ if __name__ == "__main__":
 
     label_named = np.linspace(0,49, 49)
 
-    unit_cam = utils.get_identity_cam(0.02)
+    unit_cam = plot.get_identity_cam(0.02)
 
     #! For each Label:
     # for label, exp_op in zip(labels, expected_op):
@@ -123,7 +127,7 @@ if __name__ == "__main__":
 
         # label 
         print(f"Saving reverse diffusion images for label {label_named[count]} ...")
-        imgdir = f"exps/{config.experiment_name}/rev_diffusion/label_{label_named[count]}"
+        imgdir = f"data/diff_exps/{config.experiment_name}/rev_diffusion/label_{label_named[count]}"
         os.makedirs(imgdir, exist_ok=True)
 
         # Convert to Numpy
@@ -163,18 +167,18 @@ if __name__ == "__main__":
 
             #! Plot all 100 camera poses in this time step
             for frm in frame:
-                cam = utils.get_cam_plot(frm[:4], frm[4:], unit_cam)
+                cam = plot.get_cam_plot(frm[:4], frm[4:], unit_cam)
                 ax.plot(cam[:,0], cam[:,1], cam[:,2], alpha=0.3)
 
             #! Plot Test GT pose
             exp_op_np = exp_op.numpy()
-            gt_cam = utils.get_cam_plot(exp_op_np[:4], exp_op_np[4:], unit_cam)
+            gt_cam = plot.get_cam_plot(exp_op_np[:4], exp_op_np[4:], unit_cam)
             ax.plot(gt_cam[:,0], gt_cam[:,1], gt_cam[:,2], linewidth=4, color='green')
             
             #! Plot Train Dataset poses
             for td in train_dataset:
                 t_qctc = td['qctc'].numpy()
-                cam = utils.get_cam_plot(t_qctc[:4], t_qctc[4:], unit_cam)
+                cam = plot.get_cam_plot(t_qctc[:4], t_qctc[4:], unit_cam)
                 ax.plot(cam[:,0], cam[:,1], cam[:,2], alpha=1, color='red')
 
       
