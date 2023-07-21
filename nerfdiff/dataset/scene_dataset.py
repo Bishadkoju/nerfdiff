@@ -40,6 +40,7 @@ class SceneDataset(Dataset):
             data = file.readlines()
 
             for line in data:
+                if line[0] == '>': continue # Ignore the Metadata lines
                 line_split = line[:-1].split(' ')
                 name = line_split[0]
                 qctc = []
