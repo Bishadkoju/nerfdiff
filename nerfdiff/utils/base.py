@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from nerfdiff.utils.read_write_model import qvec2rotmat
 from scipy.spatial.transform import Rotation as R
+from datetime import datetime
 
 
 def normalize_qt(qt):
@@ -108,3 +109,43 @@ def diff_qctc(qctc, qctc_gt):
     all = np.concatenate([mean_mse, eul_diff_mean, trans_error_mean])
 
     return all
+
+def qvec2c2w(qvec: torch.Tensor):
+    """
+    Get the 4x4 Camera-to-World matrix from the qvec tensor.
+
+    Parameters
+    ---------
+    qvec: torch.tensor
+        Rotation quaternion and position vector
+        [q0, q1, q2, q3, x, y, z]
+
+    Returns
+    -------
+    c2v: torch.tensor
+        4x4 Camera to World matrix
+    """
+    return torch.tensor([
+         [1 - 2 * qvec[2]**2 - 2 * qvec[3]**2,
+         2 * qvec[1] * qvec[2] - 2 * qvec[0] * qvec[3],
+         2 * qvec[3] * qvec[1] + 2 * qvec[0] * qvec[2],
+         qvec[4]],
+         [2 * qvec[1] * qvec[2] + 2 * qvec[0] * qvec[3],
+         1 - 2 * qvec[1]**2 - 2 * qvec[3]**2,
+         2 * qvec[2] * qvec[3] - 2 * qvec[0] * qvec[1],
+         qvec[5]],
+         [2 * qvec[3] * qvec[1] - 2 * qvec[0] * qvec[2],
+         2 * qvec[2] * qvec[3] + 2 * qvec[0] * qvec[1],
+         1 - 2 * qvec[1]**2 - 2 * qvec[2]**2,
+         qvec[6]],
+         [0,
+         0,
+         0,
+         1]
+         ], requires_grad=qvec.requires_grad)
+
+def get_timestamp():
+    """
+    Get Timestamp String in YYYY-MM-DD_HHMMSS format.
+    """
+    return datetime.now().strftime("%Y-%m-%d_%H%M%S")

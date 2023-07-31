@@ -1,5 +1,4 @@
 import torch
-from torch import nn, optim
 
 from nerfdiff.model.tiny_nerf_model import TinyNeRF_model
 

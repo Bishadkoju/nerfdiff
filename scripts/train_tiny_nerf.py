@@ -3,61 +3,15 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from pathlib import Path
-from datetime import datetime
 from argparse import ArgumentParser
 
 from torch import nn, optim
 
 from nerfdiff.nerf.tiny_nerf import TinyNeRF
-
-
-def load_data(device):
-    # data_f = "/usr/dataset/cars.npz"
-    data_f = "/usr/dataset/lego.npz"
-    data = np.load(data_f)
-    print(data)
-    # print(data['camera_distance'])
-    # print(data['poses'])
-
-    # images = data["images"] / 255
-    images = data['images']
-    img_size = images.shape[1]
-    #TODO here image_size is used for x only
-    xs = torch.arange(img_size) - (img_size / 2 - 0.5)
-    ys = torch.arange(img_size) - (img_size / 2 - 0.5)
-    (xs, ys) = torch.meshgrid(xs, -ys, indexing="xy")
-    focal = float(data["focal"])
-
-    pixel_coords = torch.stack([xs, ys, torch.full_like(xs, -focal)], dim=-1)
-    camera_coords = pixel_coords / focal
-
-    init_ds = camera_coords.to(device)
-    # init_o = torch.Tensor(np.array([0, 0, float(data["camera_distance"])])).to(device)
-    # print(init_o)
-    print(init_ds.shape)
-    
-
-    #TODO no point in returning img_size here!!! ???
-    return (images, data["poses"], init_ds)
-
-
-def set_up_test_data(images, device, poses, init_ds):
-    test_idx = 0
-    test_img = torch.Tensor(images[test_idx]).to(device)
-    test_R = torch.Tensor(poses[test_idx, :3, :3]).to(device)
-    test_ds = torch.einsum("ij,hwj->hwi", test_R, init_ds)
-    # test_os = (test_R @ init_o).expand(test_ds.shape)
-    test_os = torch.Tensor(poses[test_idx, :3, 3]).to(device).expand(test_ds.shape)
-    train_idxs = np.arange(len(images)) != test_idx
-
-    return (test_ds, test_os, test_img, train_idxs)
-
-def get_timestamp():
-    return datetime.now().strftime("%Y-%m-%d_%H%M%S")
-
+from nerfdiff.dataset.scene_dataset import SceneDataset
+from nerfdiff.utils.base import get_timestamp
 
 if __name__ == "__main__":
-    #TODO add argparse arguments for: device, dataset path, seed etc.. (that needs change)
 
     parser = ArgumentParser(description='Train Tiny NeRF')
     parser.add_argument('--seed', type=int )
@@ -85,59 +39,45 @@ if __name__ == "__main__":
     num_iterations = args.num_iterations
     steps_per_save = args.steps_per_save
     steps_per_eval = args.steps_per_eval
-    lr= args.lr
+    lr = args.lr
+    path = args.data_dir
     assert steps_per_save < num_iterations, f'Steps per save should not be greater than number of iterations ({steps_per_save} > {num_iterations})'
     assert steps_per_eval < num_iterations, f'Steps per evaluation should not be greater than number of iterations ({steps_per_eval} > {num_iterations})'
-
 
     experiment_save_path = output_dir / scene / experiment_name
     model_save_path = experiment_save_path / 'models'
     log_save_path = experiment_save_path / 'logs'
-
     model_save_path.mkdir(parents=True, exist_ok=True)
     log_save_path.mkdir(parents=True, exist_ok=True)
 
-
-    nerf = TinyNeRF(device)
+    nerf = TinyNeRF(device=device)
+    dataset = SceneDataset(path=path, device=device)
     optimizer = optim.Adam(nerf.F_c.parameters(), lr=lr)
-    criterion = nn.MSELoss()
+    loss_function = nn.MSELoss()
 
-    (images, poses, init_ds) = load_data(device)
-    (test_ds, test_os, test_img, train_idxs) = set_up_test_data(
-        images, device, poses, init_ds
-    )
-    images = torch.Tensor(images[train_idxs])
-    poses = torch.Tensor(poses[train_idxs])
+    test_image, test_ray_directions, test_ray_origins = dataset.get_test_data()
 
     psnrs = []
     iternums = []
     nerf.F_c.train()
+
     for i in tqdm(range(num_iterations)):
-        target_img_idx = np.random.randint(images.shape[0])
-        target_pose = poses[target_img_idx].to(device)
-        R = target_pose[:3, :3]
-
-        ds = torch.einsum("ij,hwj->hwi", R, init_ds)
-        # os = (R @ init_o).expand(ds.shape) #TODO Why t not used?
-        os = target_pose[:3,-1].expand(ds.shape)
-
-        C_rs_c = nerf(ds, os)
-        loss = criterion(C_rs_c, images[target_img_idx].to(device))
+        image, ray_directions, ray_origins = dataset.get_next_training_data()
+        rendered_image = nerf(ray_directions, ray_origins)
+        loss = loss_function(rendered_image, image)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-
         if i % steps_per_save == 0:
             torch.save(nerf.F_c.state_dict(), model_save_path / f"model_{i}.pth")
-
             print("Saving")
         if i % steps_per_eval == 0:
             nerf.F_c.eval()
             with torch.no_grad():
-                C_rs_c = nerf(test_ds, test_os)
+                rendered_image = nerf(test_ray_directions, test_ray_origins)
 
-            loss = criterion(C_rs_c, test_img)
+            loss = loss_function(rendered_image, test_image)
             print(f"Loss: {loss.item()}")
             psnr = -10.0 * torch.log10(loss)
 
@@ -146,7 +86,7 @@ if __name__ == "__main__":
 
             plt.figure(figsize=(10, 4))
             plt.subplot(121)
-            plt.imshow(C_rs_c.detach().cpu().numpy())
+            plt.imshow(rendered_image.detach().cpu().numpy())
             plt.title(f"Iteration {i}")
             plt.subplot(122)
             plt.plot(iternums, psnrs)
@@ -157,6 +97,6 @@ if __name__ == "__main__":
 
             nerf.F_c.train()
 
-    
+
     torch.save(nerf.F_c.state_dict(),model_save_path /  f"model_last.pth")
     print("Done!")
