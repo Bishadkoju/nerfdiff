@@ -52,14 +52,14 @@ if __name__ == "__main__":
 
     nerf = TinyNeRF(device=device)
     dataset = SceneDataset(path=path, device=device)
-    optimizer = optim.Adam(nerf.F_c.parameters(), lr=lr)
+    optimizer = optim.Adam(nerf.model.parameters(), lr=lr)
     loss_function = nn.MSELoss()
 
     test_image, test_ray_directions, test_ray_origins = dataset.get_test_data()
 
     psnrs = []
     iternums = []
-    nerf.F_c.train()
+    nerf.model.train()
 
     for i in tqdm(range(num_iterations)):
         image, ray_directions, ray_origins = dataset.get_next_training_data()
@@ -70,10 +70,10 @@ if __name__ == "__main__":
         optimizer.step()
 
         if i % steps_per_save == 0:
-            torch.save(nerf.F_c.state_dict(), model_save_path / f"model_{i}.pth")
+            torch.save(nerf.model.state_dict(), model_save_path / f"model_{i}.pth")
             print("Saving")
         if i % steps_per_eval == 0:
-            nerf.F_c.eval()
+            nerf.model.eval()
             with torch.no_grad():
                 rendered_image = nerf(test_ray_directions, test_ray_origins)
 
@@ -95,8 +95,8 @@ if __name__ == "__main__":
             plt.savefig(log_save_path / f"{i}.jpg")
             plt.close()
 
-            nerf.F_c.train()
+            nerf.model.train()
 
 
-    torch.save(nerf.F_c.state_dict(),model_save_path /  f"model_last.pth")
+    torch.save(nerf.model.state_dict(),model_save_path /  f"model_last.pth")
     print("Done!")

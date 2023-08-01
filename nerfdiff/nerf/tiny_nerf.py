@@ -4,7 +4,7 @@ from nerfdiff.model.tiny_nerf_model import TinyNeRF_model
 
 class TinyNeRF:
     def __init__(self, device):
-        self.F_c = TinyNeRF_model().to(device)
+        self.model = TinyNeRF_model().to(device)
         self.chunk_size = 16384
         self.t_n = t_n = 1.0
         self.t_f = t_f = 4.0
@@ -53,5 +53,5 @@ class TinyNeRF:
 
     def __call__(self, ds, os):
         (r_ts_c, t_is_c) = self.get_coarse_query_points(ds, os)
-        C_rs_c = self.render_radiance_volume(r_ts_c, ds, self.F_c, t_is_c)
+        C_rs_c = self.render_radiance_volume(r_ts_c, ds, self.model, t_is_c)
         return C_rs_c

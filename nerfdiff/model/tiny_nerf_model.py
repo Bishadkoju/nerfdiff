@@ -4,42 +4,42 @@ from torch import nn
 class TinyNeRF_model(nn.Module):
     def __init__(self):
         super().__init__()
-        self.L_pos = 6
-        self.L_dir = 4
-        pos_enc_feats = 3 + 3 * 2 * self.L_pos
-        dir_enc_feats = 3 + 3 * 2 * self.L_dir
+        self.position_encoding_level = 6
+        self.direction_encoding_level = 4
+        position_encoding_feature_length = 3 + 3 * 2 * self.position_encoding_level
+        direction_encoding_feature_length = 3 + 3 * 2 * self.direction_encoding_level
 
-        net_width = 256
+        network_width = 256
         self.early_mlp = nn.Sequential(
-            nn.Linear(pos_enc_feats, net_width),
+            nn.Linear(position_encoding_feature_length, network_width),
             nn.ReLU(),
-            nn.Linear(net_width, net_width + 1),
+            nn.Linear(network_width, network_width + 1),
             nn.ReLU(),
         )
         self.late_mlp = nn.Sequential(
-            nn.Linear(net_width + dir_enc_feats, net_width),
+            nn.Linear(network_width + direction_encoding_feature_length, network_width),
             nn.ReLU(),
-            nn.Linear(net_width, 3),
+            nn.Linear(network_width, 3),
             nn.Sigmoid(),
         )
 
-    def forward(self, xs, ds):
-        xs_encoded = [xs]
-        for l_pos in range(self.L_pos):
-            xs_encoded.append(torch.sin(2**l_pos * torch.pi * xs))
-            xs_encoded.append(torch.cos(2**l_pos * torch.pi * xs))
+    def forward(self, positions, directions):
+        positions_encoded = [positions]
+        for l_pos in range(self.position_encoding_level):
+            positions_encoded.append(torch.sin(2**l_pos * torch.pi * positions))
+            positions_encoded.append(torch.cos(2**l_pos * torch.pi * positions))
 
-        xs_encoded = torch.cat(xs_encoded, dim=-1)
+        positions_encoded = torch.cat(positions_encoded, dim=-1)
 
-        ds = ds / ds.norm(p=2, dim=-1).unsqueeze(-1)
-        ds_encoded = [ds]
-        for l_dir in range(self.L_dir):
-            ds_encoded.append(torch.sin(2**l_dir * torch.pi * ds))
-            ds_encoded.append(torch.cos(2**l_dir * torch.pi * ds))
+        directions = directions / directions.norm(p=2, dim=-1).unsqueeze(-1)
+        directions_encoded = [directions]
+        for l_dir in range(self.direction_encoding_level):
+            directions_encoded.append(torch.sin(2**l_dir * torch.pi * directions))
+            directions_encoded.append(torch.cos(2**l_dir * torch.pi * directions))
 
-        ds_encoded = torch.cat(ds_encoded, dim=-1)
+        directions_encoded = torch.cat(directions_encoded, dim=-1)
 
-        outputs = self.early_mlp(xs_encoded)
+        outputs = self.early_mlp(positions_encoded)
         sigma_is = outputs[:, 0]
-        c_is = self.late_mlp(torch.cat([outputs[:, 1:], ds_encoded], dim=-1))
+        c_is = self.late_mlp(torch.cat([outputs[:, 1:], directions_encoded], dim=-1))
         return {"c_is": c_is, "sigma_is": sigma_is}
