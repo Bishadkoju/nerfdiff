@@ -7,7 +7,7 @@ from nerfdiff.utils.base import qvec2c2w
 
 
 class SceneDataset(Dataset):
-    def __init__(self, path, device='cpu', test_index=0, filename='poses.txt', N=None):
+    def __init__(self, path, device='cpu', output_raybundle=False, filename='poses.txt', N=None):
 
         print("\nScene Dataset\n--------------")
         print(f"Using: {path}/{filename}")
@@ -16,6 +16,7 @@ class SceneDataset(Dataset):
         #! Get data
         self.names, self.qctcs, self.metadata = self.get_names_qctcs_metadata(f"{path}/{filename}")
         self.device = device
+        self.output_raybundle = output_raybundle
         available_data_points = len(self.names)
         print(f"Unique Data Points: {available_data_points}")
 
@@ -24,9 +25,6 @@ class SceneDataset(Dataset):
             self.index = np.linspace(0,available_data_points-1, available_data_points).astype(int)
         else:
             self.index = np.random.randint(0,available_data_points, size=N)
-
-        self.test_index = test_index
-        self.train_idxs = self.index[np.arange(len(self.index)) != test_index]
 
         print(f"Total Data: {self.__len__()}\n")
 
@@ -38,8 +36,8 @@ class SceneDataset(Dataset):
         ])
 
         # Setup Initial Raybundle Directions
-        image_width = int(self.metadata['cx'])*2
-        image_height = int(self.metadata['cy'])*2
+        image_width = int(self.metadata['w'])
+        image_height = int(self.metadata['h'])
         xs = torch.arange(image_width) - (image_width / 2 - 0.5)
         ys = torch.arange(image_height) - (image_height / 2 - 0.5)
         (xs, ys) = torch.meshgrid(xs, -ys, indexing="xy")
@@ -74,39 +72,6 @@ class SceneDataset(Dataset):
 
         return names, torch.as_tensor(qctcs, dtype=torch.float32), metadata
     
-    def get_test_data(self):
-        #! Get Test Data
-        test_data = self[self.test_index]
-        test_image = torch.Tensor(test_data['image']).permute(1, 2, 0).to(self.device)
-
-        #! Convert quaternion and translation vector to Camera to World Matrix
-        test_c2w = qvec2c2w(test_data['qctc']).to(self.device)
-        test_rotation_matrix = torch.Tensor(test_c2w[ :3, :3])
-
-        #! Rotate the initial ray directions using the rotation matrix
-        test_ray_directions = torch.einsum("ij,hwj->hwi", test_rotation_matrix, self.initial_ray_directions)
-        test_ray_origins = test_c2w[:3, 3].expand(test_ray_directions.shape)
-
-        return (test_image, test_ray_directions, test_ray_origins)
-    
-    def get_next_training_data(self):
-        #! Randomly get the index for next training data
-        train_index = np.random.choice(self.train_idxs)
-        data = self[train_index]
-
-        #! Convert the image tensor from [3, 100, 100] dimension to [100, 100, 3] dimension
-        image = data['image'].permute(1, 2, 0).to(self.device)
-
-        #! Convert quaternion and translation vector to Camera to World Matrix
-        camera2world_matrix = qvec2c2w(data['qctc']).to(self.device)
-        rotation_matrix = camera2world_matrix[:3, :3]
-
-        #! Rotate the initial ray directions using the rotation matrix
-        ray_directions = torch.einsum("ij,hwj->hwi", rotation_matrix, self.initial_ray_directions)
-        ray_origins = camera2world_matrix[:3,-1].expand(ray_directions.shape)
-
-        return (image, ray_directions, ray_origins)
-
     def __len__(self):
         return len(self.index)
 
@@ -119,21 +84,31 @@ class SceneDataset(Dataset):
 
         #! Get image
         img = Image.open(f"{self.path}/images/{name}")
-        img_tensor = self.preprocess(img)
+        img_tensor = self.preprocess(img).to(self.device)
 
         #! Get qctc
         qctc = self.qctcs[index]
 
-        # print(img_tensor.shape)
-        # print(torch.min(img_tensor))
-        # print(torch.max(img_tensor))
-
-        #! Return
-        return {
+        output = {
             'name': name,
             'image': img_tensor,
             'qctc': qctc,
         }
+
+        if self.output_raybundle:
+            #! Convert quaternion and translation vector to Camera to World Matrix
+            camera2world_matrix = qvec2c2w(qctc).to(self.device)
+            rotation_matrix = camera2world_matrix[:3, :3]
+
+            #! Rotate the initial ray directions using the rotation matrix
+            ray_directions = torch.einsum("ij,hwj->hwi", rotation_matrix, self.initial_ray_directions)
+            ray_origins = camera2world_matrix[:3,-1].expand(ray_directions.shape)
+
+            output['ray_directions'] = ray_directions
+            output['ray_origins'] = ray_origins
+        
+        #! Return
+        return output
 
 
 if __name__=='__main__':

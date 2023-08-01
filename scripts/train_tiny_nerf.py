@@ -23,7 +23,8 @@ if __name__ == "__main__":
     parser.add_argument('--num-iterations', type=int, default=20000)
     parser.add_argument('--steps-per-save', type=int, default=1000)
     parser.add_argument('--steps-per-eval', type=int, default=1000)
-    parser.add_argument('--lr', type=float, default=5e-3)
+    parser.add_argument('--eval-indices', nargs='+', type=int, default=[0, 1], help ='Indexes for Images to use for evaluation')
+    parser.add_argument('--lr', type=float, default=5e-3, help='Learning Rate')
     args = parser.parse_args()
     print(args)
 
@@ -39,6 +40,7 @@ if __name__ == "__main__":
     num_iterations = args.num_iterations
     steps_per_save = args.steps_per_save
     steps_per_eval = args.steps_per_eval
+    eval_indices = args.eval_indices
     lr = args.lr
     path = args.data_dir
     assert steps_per_save < num_iterations, f'Steps per save should not be greater than number of iterations ({steps_per_save} > {num_iterations})'
@@ -51,52 +53,66 @@ if __name__ == "__main__":
     log_save_path.mkdir(parents=True, exist_ok=True)
 
     nerf = TinyNeRF(device=device)
-    dataset = SceneDataset(path=path, device=device)
+    dataset = SceneDataset(path=path, device=device, output_raybundle=True)
     optimizer = optim.Adam(nerf.model.parameters(), lr=lr)
     loss_function = nn.MSELoss()
 
-    test_image, test_ray_directions, test_ray_origins = dataset.get_test_data()
+    #! Filter invalid indices
+    eval_indices = [x for x in eval_indices if x < len(dataset) ]
+    if eval_indices == []:
+        eval_indices = [0]
 
-    psnrs = []
+    #! Setup training indices
+    train_indices = [x for x in dataset.index if x not in eval_indices]
+    eval_datas = [dataset[x] for x in eval_indices]
+
+    psnrs = [[] for _ in eval_indices]
     iternums = []
     nerf.model.train()
 
     for i in tqdm(range(num_iterations)):
-        image, ray_directions, ray_origins = dataset.get_next_training_data()
+        #! Get random image for training
+        train_index = np.random.choice(train_indices)
+        train_data = dataset[train_index]
+        image = train_data['image'].permute(1,2,0)
+        ray_directions=train_data['ray_directions']
+        ray_origins=train_data['ray_origins']
+
+        #! Train
         rendered_image = nerf(ray_directions, ray_origins)
         loss = loss_function(rendered_image, image)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
+        #! Save Model
         if i % steps_per_save == 0:
             torch.save(nerf.model.state_dict(), model_save_path / f"model_{i}.pth")
             print("Saving")
+
+        #! Eval Model
         if i % steps_per_eval == 0:
             nerf.model.eval()
-            with torch.no_grad():
-                rendered_image = nerf(test_ray_directions, test_ray_origins)
-
-            loss = loss_function(rendered_image, test_image)
-            print(f"Loss: {loss.item()}")
-            psnr = -10.0 * torch.log10(loss)
-
-            psnrs.append(psnr.item())
             iternums.append(i)
+            for j, eval_data in enumerate(eval_datas):
+                with torch.no_grad():
+                    rendered_image = nerf(eval_data['ray_directions'], eval_data['ray_origins'])
+                loss = loss_function(rendered_image, eval_data['image'].permute(1,2,0))
+                print(f"Loss: {loss.item()}")
+                psnr = -10.0 * torch.log10(loss)
+                psnrs[j].append(psnr.item())
 
-            plt.figure(figsize=(10, 4))
-            plt.subplot(121)
-            plt.imshow(rendered_image.detach().cpu().numpy())
-            plt.title(f"Iteration {i}")
-            plt.subplot(122)
-            plt.plot(iternums, psnrs)
-            plt.title("PSNR")
-            # plt.show()
-            plt.savefig(log_save_path / f"{i}.jpg")
-            plt.close()
+                plt.figure(figsize=(10, 4))
+                plt.subplot(121)
+                plt.imshow(rendered_image.detach().cpu().numpy())
+                plt.title(f"Iteration {i}")
+                plt.subplot(122)
+                plt.plot(iternums, psnrs[j])
+                plt.title("PSNR")
+                plt.savefig(log_save_path / f"{i}-{j}.jpg")
+                plt.close()
 
             nerf.model.train()
-
 
     torch.save(nerf.model.state_dict(),model_save_path /  f"model_last.pth")
     print("Done!")
